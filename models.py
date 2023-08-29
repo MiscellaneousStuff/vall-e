@@ -130,6 +130,8 @@ from einops import rearrange
 from torch import Tensor, einsum, nn
 from torch.utils.checkpoint import checkpoint
 
+# NOTE: Embedding := Linear layer with one-hot encoded inputs and no bias
+#                    It is literally just a lookup table
 # Allows for efficient inference of list of embeddings at once
 class Embedding(nn.Embedding):
     def forward(self, x_list: list[Tensor]) -> list[Tensor]:

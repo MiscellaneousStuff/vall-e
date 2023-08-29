@@ -7,10 +7,10 @@ https://github.com/enhuiz/vall-e
 - [x] SinusodialEmbedding (2017 original positional embedding)
 - [x] Attention (Single head attention)
 - [x] AdaLN (Adaptive Layer Norm, better for generative networks)
-- [ ] PrenormResidual (Norm before attn/ffwd), opposite of 2017 paper
-- Block (TransformerBlock)
-- Embedding (Generic forward pass for an embedding)
-- MultiEmbedding (Sum embeddings on different levels)
+- [x] PrenormResidual (Norm before attn/ffwd), opposite of 2017 paper
+- [x] Block (TransformerBlock)
+- [ ] Embedding (Generic forward pass for an embedding)
+- [ ] MultiEmbedding (Sum embeddings on different levels)
 
 (AR) Components:
 - init()
@@ -128,6 +128,7 @@ import torch
 
 from einops import rearrange
 from torch import Tensor, einsum, nn
+from torch.utils.checkpoint import checkpoint
 
 # AdaLN used for AR, Standard LN used for NAR?
 class PrenormResidual(nn.Module):
@@ -310,6 +311,49 @@ class Attention(nn.Module):
         return o
     
 
+class Block(nn.Sequential):
+    def __init__(self, d_model, n_heads, p_dropout, casual, norm_type, n_levels):
+        super().__init__()
+        self.attn = PrenormResidual(
+            Attention(d_model, n_heads, casual),
+            d_model=d_model,
+            p_dropout=p_dropout,
+            # (for causal: left-to-right)
+            # (for causal + non-causal: masks padding)
+            requires_mask=True, 
+            norm_type=norm_type,
+            n_levels=n_levels,
+        )
+        self.ffn = PrenormResidual(
+            nn.Sequential(
+                nn.Linear(d_model, d_model * 4),
+                nn.GELU(),
+                nn.Dropout(p_dropout),
+                nn.Linear(d_model * 4, d_model),
+            ),
+            d_model=d_model,
+            p_dropout=p_dropout,
+            norm_type=norm_type,
+            n_levels=n_levels,
+        )
+
+    def forward(self, x, m, l):
+        """
+        Args:
+            x: (b t c)
+            m: (b t 1)
+            l: (b)
+        """
+        poor_in_vram = True
+        if x.requires_grad and poor_in_vram:
+            # NOTE: # Re-compute forward pass
+            # Trade compute for memory, but also keeps RNG consistent?
+            x = checkpoint(self.attn, x, m, l) 
+        else:
+            x = self.attn(x, m, l)
+        x = self.ffn(x, m, l)
+        return x
+    
 class Base(nn.Module):
     def __init__(self):
         pass

@@ -10,7 +10,7 @@ https://github.com/enhuiz/vall-e
 - [x] PrenormResidual (Norm before attn/ffwd), opposite of 2017 paper
 - [x] Block (TransformerBlock)
 - [x] Embedding (Generic forward pass for an embedding)
-- [ ] MultiEmbedding (Sum embeddings on different levels)
+- [x] MultiEmbedding (Sum embeddings on different levels)
 
 (AR) Components:
 - init()
@@ -129,6 +129,41 @@ import torch
 from einops import rearrange
 from torch import Tensor, einsum, nn
 from torch.utils.checkpoint import checkpoint
+import torch.nn.functional as F
+
+
+class MultiEmbedding(nn.Module):
+    """
+    This embedding sums embeddings on different levels.
+    """
+
+    def __init__(self, max_n_levels, n_tokens, token_dim):
+        super().__init__()
+        self.max_n_levels = max_n_levels
+        self.n_tokens = n_tokens
+        # shape := (max_n_lvls, t, t_d)
+        self.weight = nn.Parameter(torch.randn(max_n_levels, n_tokens, token_dim))
+
+    def forward(self, x_list: list[Tensor]) -> list[Tensor]:
+        if len(x_list) == 0:
+            return []
+
+        w = self.weight
+
+        padded_x_list = []
+
+        for xi in x_list:
+            xi = F.one_hot(xi, num_classes=self.n_tokens)  # t l' k
+            xi = F.pad(xi, (0, 0, 0, w.shape[0] - xi.shape[1]))  # t l k
+            padded_x_list.append(xi.to(w))
+
+        x = torch.cat(padded_x_list)  # n l k
+        x = einsum("l k d, n l k -> n d", w, x)
+
+        x_list = x.split([*map(len, x_list)])
+
+        return x_list
+    
 
 # NOTE: Embedding := Linear layer with one-hot encoded inputs and no bias
 #                    It is literally just a lookup table

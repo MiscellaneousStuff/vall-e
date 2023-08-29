@@ -9,7 +9,7 @@ https://github.com/enhuiz/vall-e
 - [x] AdaLN (Adaptive Layer Norm, better for generative networks)
 - [x] PrenormResidual (Norm before attn/ffwd), opposite of 2017 paper
 - [x] Block (TransformerBlock)
-- [ ] Embedding (Generic forward pass for an embedding)
+- [x] Embedding (Generic forward pass for an embedding)
 - [ ] MultiEmbedding (Sum embeddings on different levels)
 
 (AR) Components:
@@ -129,6 +129,14 @@ import torch
 from einops import rearrange
 from torch import Tensor, einsum, nn
 from torch.utils.checkpoint import checkpoint
+
+# Allows for efficient inference of list of embeddings at once
+class Embedding(nn.Embedding):
+    def forward(self, x_list: list[Tensor]) -> list[Tensor]:
+        if len(x_list) == 0:
+            return []
+        return super().forward(torch.cat(x_list)).split([*map(len, x_list)])
+
 
 # AdaLN used for AR, Standard LN used for NAR?
 class PrenormResidual(nn.Module):

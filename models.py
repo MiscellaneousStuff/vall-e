@@ -7,7 +7,7 @@ https://github.com/enhuiz/vall-e
 - [x] SinusodialEmbedding (2017 original positional embedding)
 - [x] Attention (Single head attention)
 - [x] AdaLN (Adaptive Layer Norm, better for generative networks)
-- PrenormResidual (Norm before attn/ffwd), opposite of 2017 paper
+- [ ] PrenormResidual (Norm before attn/ffwd), opposite of 2017 paper
 - Block (TransformerBlock)
 - Embedding (Generic forward pass for an embedding)
 - MultiEmbedding (Sum embeddings on different levels)
@@ -128,6 +128,43 @@ import torch
 
 from einops import rearrange
 from torch import Tensor, einsum, nn
+
+# AdaLN used for AR, Standard LN used for NAR?
+class PrenormResidual(nn.Module):
+    def __init__(
+        self,
+        block,
+        d_model,
+        p_dropout,
+        requires_mask=False,
+        norm_type="ln",
+        n_levels: int = None,
+    ):
+        super().__init__()
+        self.block = block
+        self.requires_mask = requires_mask
+        self.norm_type = norm_type
+        if norm_type == "ln":
+            self.norm = nn.LayerNorm(d_model)
+        elif norm_type == "adaln":
+            assert n_levels is not None
+            self.norm = AdaLN(d_model, n_levels)
+        else:
+            raise NotImplementedError(norm_type)
+        self.dropout = nn.Dropout(p_dropout)
+
+    def forward(self, x, m, l):
+        """
+        Args:
+            x: input (b t d)
+            m: mask (b t 1), 1 is valuable and 0 is padding
+            l: level to use, required only for AdaLN
+        """
+        nopts = {"l": l} if self.norm_type == "adaln" else {}
+        bopts = {"m": m} if self.requires_mask else {}
+        x = x + self.dropout(self.block(self.norm(x, **nopts) * m, **bopts))
+        return x * m
+
 
 # Adaptive layer norm (Better for generative networks due to robustness against
 # highly varying data?)

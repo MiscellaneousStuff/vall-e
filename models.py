@@ -126,6 +126,7 @@ for i in range(200):
 import math
 import torch
 
+from einops import rearrange
 from torch import Tensor, einsum, nn
 
 
@@ -175,6 +176,80 @@ class SinusodialEmbedding(nn.Module):
         x = torch.cat([x.sin(), x.cos()], dim=-1)
 
         return x
+    
+    def get_pe(self, n: int):
+        """
+        Args:
+            n: int
+        Returns:
+            pe: (n d)
+        """
+        device = self.omega.device
+        return self.forward(torch.arange(n, device=device))
+
+    def add_pe(self, x):
+        """
+        Args:
+            x: (b t c)
+        """
+        e = self.get_pe(x.shape[1])  # t d
+        e = e[None]  # b t d
+        x = x + e
+        return x
+    
+
+# Lucidrains-style attention mechanism
+class Attention(nn.Module):
+    def __init__(self, d_model, n_heads, causal):
+        super().__init__()
+        assert d_model % n_heads == 0
+        dim_head     = d_model // n_heads
+        self.causal  = causal # AR vs NAR
+        self.n_heads = n_heads
+        self.scale   = dim_head**-0.5
+        self.to_qkv  = nn.Linear(d_model, d_model * 3, bias=False)
+        self.to_out  = nn.Linear(d_model, d_model)
+
+    def forward(self, x, m):
+        """
+        Args:
+            x: (b t c)
+            m: (b t c), 1 is data, 0 is padding
+        Returns:
+            x: (b t c)
+        """
+        # num of attn heads
+        h = self.n_heads
+
+        # split tensor into 3 chunks (q, k, v)
+        q, k, v = self.to_qkv(x).chunk(3, dim=-1)
+
+        # split (head, dim_head) -> head, dim_head
+        q, k, v = map(lambda t: rearrange(t, "b t (h d) -> b t h d", h=h), (q, k, v))
+
+        # attn score := (b t h d * b t h d := b t t h)
+        e = einsum("b i h d, b j h d -> b i j h", q, k)
+        e = e * self.scale # scale result down for stability
+
+        # (b t t 1) shape?
+        kpm = m.unsqueeze(1) * m.unsqueeze(2)  # b i j 1
+
+        # zero-out upper-right triangle for causal, only diff during forward pass?
+        if self.causal:
+            kpm = kpm.squeeze(-1).tril().unsqueeze(-1)  # b i j 1
+
+        # fill zero, softmax remaining (normalise scores to 1.0 when summed)
+        e = e.masked_fill(kpm == 0, -torch.finfo(e.dtype).max)
+        a = e.softmax(dim=2)  # Normalize on j, i.e. key
+
+        # final shape := (b t h d)
+        o = einsum("b i j h, b j h d -> b i h d", a, v)
+        o = o.flatten(-2)
+        o = self.to_out(o)  # b t c
+
+        o = o * m
+
+        return o
     
 
 class Base(nn.Module):

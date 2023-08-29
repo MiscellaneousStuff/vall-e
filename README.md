@@ -11,6 +11,15 @@ VALL-E: Re-implementation of VALL-E paper
 tokenise and detokensize audio
 - [x] Custom LJSpeech dataloader to include phonemes and EnCodec audio tokens
 
-## LJSpeech
+## Model Parameters
 
-- [ ] Overfit model on one sample from LJSpeech
+Model from the paper uses a GPT-2 `small` like model with roughly
+152M params for the AR, and NAR each?
+
+- `d_model`  := 1024
+- `n_heads`  := 16
+- `n_layers` := 12
+
+## TODO
+
+- [ ] Overfit on one sample from LJSpeech

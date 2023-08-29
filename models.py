@@ -5,8 +5,8 @@ https://github.com/enhuiz/vall-e
 (Base) Components:
 - init()
 - [x] SinusodialEmbedding (2017 original positional embedding)
-- Attention (MHSA?, Single head attention?)
-- AdaLN (Adaptive Layer Norm, better for generative networks)
+- [x] Attention (Single head attention)
+- [x] AdaLN (Adaptive Layer Norm, better for generative networks)
 - PrenormResidual (Norm before attn/ffwd), opposite of 2017 paper
 - Block (TransformerBlock)
 - Embedding (Generic forward pass for an embedding)
@@ -129,7 +129,28 @@ import torch
 from einops import rearrange
 from torch import Tensor, einsum, nn
 
+# Adaptive layer norm (Better for generative networks due to robustness against
+# highly varying data?)
+class AdaLN(nn.Module):
+    def __init__(self, d_model, n_levels, eps=1e-5, k=0.1, c=2):
+        super().__init__()
+        self.eps = eps
+        self.emb = nn.Embedding(n_levels, d_model * 2)
+        self.k   = k
+        self.c   = c
+        nn.init.zeros_(self.emb.weight)
+    
+    def forward(self, x, l):
+        logy, β = self.emb(l).unsqueeze(1).chunk(2, dim=-1)
+        h = F.layer_norm(x, x.shape[-1:], eps=self.eps)
 
+        h = self.c * (1 - (self.k * h).detach()) * h
+        y = logy.exp() * h + β
+
+        return y
+    
+
+# Standard sine position embedding
 class SinusodialEmbedding(nn.Module):
     def __init__(self, d_model):
         """Initialize the SinusodialEmbedding module.

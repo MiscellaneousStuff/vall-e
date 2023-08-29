@@ -16,7 +16,7 @@ tokenise and detokensize audio
 Model from the paper uses a GPT-2 `small` like model with roughly
 152M params for the AR, and NAR each?
 
-- `d_model`  := 1024
+- `d_model`  := 512 <!-- 1024 -->
 - `n_heads`  := 16
 - `n_layers` := 12
 

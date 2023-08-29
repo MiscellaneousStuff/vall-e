@@ -126,7 +126,9 @@ for i in range(200):
 import math
 import torch
 
+from typing import Literal, overload
 from einops import rearrange
+
 from torch import Tensor, einsum, nn
 from torch.utils.checkpoint import checkpoint
 import torch.nn.functional as F
@@ -399,6 +401,107 @@ class Block(nn.Sequential):
         x = self.ffn(x, m, l)
         return x
     
+
 class Base(nn.Module):
-    def __init__(self):
-        pass
+    @property
+    def casual(self) -> bool:
+        raise NotImplementedError
+
+    @property
+    def n_resp_levels(self) -> int:
+        raise NotImplementedError
+
+    @property
+    def use_stop_token(self) -> bool:
+        raise NotImplementedError
+
+    @property
+    def norm_type(self):
+        raise NotImplementedError
+
+    # Number of quantization levels
+    @property
+    def n_prom_levels(self) -> int:
+        return 8
+
+    @property
+    def resp_loss_only(self):
+        raise NotImplementedError
+    
+    def __init__(
+            self,
+            n_tokens:  int,
+            d_model:   int = 512,
+            n_heads:   int = 8,
+            n_layers:  int = 12,
+            p_dropout: float = 0.1
+    ):  
+        super().__init__()
+        causal = self.causal # AR / NAR
+
+        # +1 to include stop token
+        n_stop_tokens = 1 if self.use_stop_token else 0
+        n_resp_tokens = n_tokens = n_stop_tokens # ?
+
+        self.text_emb = Embedding(n_tokens, d_model) # (n_t, 1024)
+
+        # What is proms, what is resps?
+        self.proms_emb = MultiEmbedding(self.n_prom_levels, n_tokens, d_model)
+        self.resps_emb = MultiEmbedding(self.n_resp_levels, n_resp_tokens, d_model)
+
+        self.sin_emb   = SinusodialEmbedding(d_model)
+        # Having this learned may provide model with more complex info about separations
+        self.sep       = nn.Parameter(torch.randn(d_model))
+
+        blocks = [
+            Block(
+                d_model=d_model,
+                n_heads=n_heads,
+                p_dropout=p_dropout,
+                causal=causal,
+                norm_type=self.norm_type,
+                n_levels=self.n_resp_levels
+            )
+            for _ in range(n_layers)
+        ]
+
+        self.blocks     = nn.ModuleList(blocks)
+        self.classifier = nn.Linear(d_model, n_resp_tokens) # MLP on last embedding
+    
+    @property
+    def stop_token(self):
+        if not self.use_stop_token:
+            raise ValueError("Not using stop token!")
+        return self.n_tokens
+
+    @property
+    def ignore_index(self):
+        return -100
+
+    @overload
+    def forward(
+        self,
+        text_list: list[Tensor],
+        proms_list: list[Tensor],
+        resps_list: list[Tensor],
+        targ_list: list[Tensor] = None,
+        quant_levels: Tensor = None,
+        shift_targ_list: bool = False,
+        return_all_resp: Literal[False] = False,
+        sampling_temperature: float = 1.0,
+    ) -> Tensor:
+        ...
+
+    @overload
+    def forward(
+        self,
+        text_list: list[Tensor],
+        proms_list: list[Tensor],
+        resps_list: list[Tensor],
+        targ_list: list[Tensor] = None,
+        quant_levels: Tensor = None,
+        shift_targ_list: bool = False,
+        return_all_resp: Literal[True] = True,
+        sampling_temperature: float = 1.0,
+    ) -> list[Tensor]:
+        ...

@@ -22,4 +22,7 @@ Model from the paper uses a GPT-2 `small` like model with roughly
 
 ## TODO
 
+- [x] LJSpeech code
+- [x] EnCodec + G2P code
+- [ ] Create model
 - [ ] Overfit on one sample from LJSpeech

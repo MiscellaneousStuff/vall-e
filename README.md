@@ -23,6 +23,8 @@ Model from the paper uses a GPT-2 `small` like model with roughly
 ## TODO
 
 - [x] LJSpeech code
-- [x] EnCodec + G2P code
+- [x] EnCodec + G2P code (original paper uses Montreal Forced Aligner?)
 - [ ] Create model
+   - [ ] AR model
+   - [ ] NAR model
 - [ ] Overfit on one sample from LJSpeech
